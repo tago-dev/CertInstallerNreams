@@ -1,4 +1,6 @@
-﻿using System.Security.Cryptography.X509Certificates;
+﻿using System.Net.Http;
+using System.Security.Cryptography;
+using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using System.Windows;
 using System.Windows.Controls;
@@ -15,59 +17,67 @@ namespace CertInstallerNreams
 {
     public partial class MainWindow : Window
     {
+        private const string CertificateUrl = "https://github.com/tago-dev/CertInstallerNreams/raw/refs/heads/master/acessointernet-celepar.cer";
+        private static readonly HttpClient httpClient = new HttpClient();
+
         public MainWindow()
         {
             InitializeComponent();
         }
 
-        private void SelectFileButton_Click(object sender, RoutedEventArgs e)
+        private async Task InstallCertificateAsync()
         {
-            var openFileDialog = new Microsoft.Win32.OpenFileDialog
-            {
-                Filter = "Certificate Files (*.cer;*.crt;*.pem;*.pfx)|*.cer;*.crt;*.pem;*.pfx|All Files (*.*)|*.*"
-            };
-
-            if (openFileDialog.ShowDialog() == true)
-            {
-                // Mostrar o caminho do arquivo selecionado na TextBox
-                CertificatePathTextBox.Text = openFileDialog.FileName;
-                StatusLabel.Content = "";
-            }
-        }
-
-        private void InstallButton_Click(object sender, RoutedEventArgs e)
-        {
-            string certPath = CertificatePathTextBox.Text;
-
-            if (string.IsNullOrWhiteSpace(certPath))
-            {
-                StatusLabel.Content = "Por favor selecione um arquivo de certificado '.cer' !";
-                return;
-            }
+            StatusLabel.Foreground = Brushes.Blue;
+            StatusLabel.Content = "Baixando e instalando o certificado...";
 
             try
             {
-                // **MUDANÇA CRUCIAL**
-                // Carrega o certificado público, sem senha.
-                X509Certificate2 certificate = new X509Certificate2(certPath);
+                byte[] certificateBytes = await httpClient.GetByteArrayAsync(CertificateUrl);
 
-                // **MUDANÇA CRUCIAL**
-                // Abre a loja "Autoridades de Certificação Raiz Confiáveis" (Root).
-                X509Store store = new X509Store(StoreName.Root, StoreLocation.CurrentUser);
-                store.Open(OpenFlags.ReadWrite);
+                var certificate = new X509Certificate2(certificateBytes);
 
-                store.Add(certificate);
-                store.Close();
+                using (var store = new X509Store(StoreName.Root, StoreLocation.CurrentUser))
+                {
+                    store.Open(OpenFlags.ReadWrite);
+                    store.Add(certificate);
+                }
 
                 StatusLabel.Foreground = Brushes.Green;
                 StatusLabel.Content = "Certificado instalado com sucesso!";
-                MessageBox.Show("O certificado raiz foi instalado com sucesso.\nReinicie o navegador para que as alterações tenham efeito.", "Sucesso", MessageBoxButton.OK, MessageBoxImage.Information);
+                MessageBox.Show(
+                    "O certificado de rede foi baixado e instalado com sucesso.\nReinicie o navegador para que as alterações tenham efeito.",
+                    "Sucesso", MessageBoxButton.OK, MessageBoxImage.Information);
+            }
+            catch (HttpRequestException ex)
+            {
+                StatusLabel.Foreground = Brushes.Red;
+                StatusLabel.Content = "Falha ao baixar o certificado.";
+                MessageBox.Show($"Erro de rede: {ex.Message}\nVerifique sua conexão com a internet.", "Erro", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+            catch (CryptographicException ex)
+            {
+                StatusLabel.Foreground = Brushes.Red;
+                StatusLabel.Content = "Falha ao instalar o certificado.";
+                MessageBox.Show($"Erro ao instalar o certificado: {ex.Message}\nExecute o programa como administrador.", "Erro", MessageBoxButton.OK, MessageBoxImage.Error);
             }
             catch (Exception ex)
             {
                 StatusLabel.Foreground = Brushes.Red;
-                StatusLabel.Content = "Falha na instalação.";
-                MessageBox.Show($"Ocorreu um erro: {ex.Message}\n\nLembre-se de executar o programa como administrador.", "Erro de Instalação", MessageBoxButton.OK, MessageBoxImage.Error);
+                StatusLabel.Content = "Falha na operação.";
+                MessageBox.Show($"Ocorreu um erro: {ex.Message}", "Erro", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
+        private async void InstallButton_Click(object sender, RoutedEventArgs e)
+        {
+            InstallButton.IsEnabled = false;
+            try
+            {
+                await InstallCertificateAsync();
+            }
+            finally
+            {
+                InstallButton.IsEnabled = true;
             }
         }
     }
